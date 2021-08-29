@@ -3,8 +3,10 @@ import boto3
 
 
 class Store:
-    def __init__(self, region_name='ap-northeast-1'):
-        self.client = boto3.client('ssm', region_name=region_name)
+    def __init__(self, client=None, region_name='ap-northeast-1'):
+        if not client:
+            client = boto3.client('ssm', region_name=region_name)
+        self.client = client
 
     def get_param(self, name):
         values = self.get_params(names=[name])
@@ -20,6 +22,32 @@ class Store:
             values[param['Name']] = param['Value']
         return values
 
+    def get_ssm_header(self):
+        return '#SSM#'
+
+    def replace_params(self, params):
+        ssm_header = self.get_ssm_header()
+        ssm_names = []
+        for key, value in params.items():
+            if type(value) == str:
+                if value.startswith(ssm_header):
+                    ssm_names.append(value.lstrip(ssm_header))
+            elif type(value) == dict:
+                ssm_names.extend(self.replace_params(value))
+        
+        ssm_params = self.get_params(ssm_names)
+        return self.replace_got_params(params, ssm_params)
+    
+    def replace_got_params(self, params, ssm_params):
+        ssm_header = self.get_ssm_header()
+        for key, value in params.items():
+            if type(value) == str:
+                if value.startswith(ssm_header):
+                    params[key] = ssm_params[value.lstrip(ssm_header)]
+            elif type(value) == dict:
+                params[key] = self.replace_got_params(value, ssm_params)
+        return params
+
 
 class TestStore(unittest.TestCase):
     class TestSsmClient():
@@ -32,8 +60,8 @@ class TestStore(unittest.TestCase):
             return {'Parameters': params, 'InvalidParameters': [], 'ResponseMetadata': {'RequestId': 'xxx', 'HTTPStatusCode': 200, 'HTTPHeaders': {'server': 'Server', 'date': 'Sun, 29 Aug 2021 02:51:53 GMT', 'content-type': 'application/x-amz-json-1.1', 'content-length': '452', 'connection': 'keep-alive', 'x-amzn-requestid': 'xxx'}, 'RetryAttempts': 0}}
 
     def setUp(self):
-        self.store = Store()
-        self.store.client = self.TestSsmClient()
+        client = self.TestSsmClient()
+        self.store = Store(client=client)
 
     def testパラメータストアから値を単体取得(self):
         self.assertEqual('/test/value', self.store.get_param('/test/value'))
@@ -43,6 +71,12 @@ class TestStore(unittest.TestCase):
         self.assertEqual({'/abc': '/abc'}, self.store.get_params(['/abc']))
         self.assertEqual({'/test/value': '/test/value', '/test/value2': '/test/value2'},
                          self.store.get_params(['/test/value', '/test/value2']))
+
+    def test特定の値をパラメータストア内の値と置き換える(self):
+        self.assertEqual({'aaa': 'bbb', 'abc': '/abc'},
+                         self.store.replace_params({'aaa': 'bbb', 'abc': '#SSM#/abc'}))
+        self.assertEqual({'aaa': '/abc', 'abc': {'ccc': 'ddd', 'abc': '/abcd'}},
+                         self.store.replace_params({'aaa': '#SSM#/abc', 'abc': {'ccc': 'ddd', 'abc': '#SSM#/abcd'}}))
 
 
 if __name__ == '__main__':
