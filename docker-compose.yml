@@ -1,0 +1,10 @@
+version: '3'
+services:
+  app:
+    container_name: aws_parameter_store
+    build:
+      context: .
+    volumes:
+      - ./aws_parameter_store:/var/task
+    tty: true
+    entrypoint: /bin/sh
