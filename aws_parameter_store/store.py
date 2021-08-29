@@ -16,6 +16,8 @@ class Store:
         return values[name]
 
     def get_params(self, names):
+        if not names:
+            return names
         response = self.client.get_parameters(
             Names=names,
             WithDecryption=True
