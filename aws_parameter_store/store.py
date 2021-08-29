@@ -1,8 +1,11 @@
 import unittest
+import os
 import boto3
 
 
 class Store:
+    SSM_HEADER = '#SSM#'
+
     def __init__(self, client=None, region_name='ap-northeast-1'):
         if not client:
             client = boto3.client('ssm', region_name=region_name)
@@ -23,7 +26,7 @@ class Store:
         return values
 
     def get_ssm_header(self):
-        return '#SSM#'
+        return self.SSM_HEADER
 
     def replace_params(self, params):
         ssm_header = self.get_ssm_header()
@@ -34,10 +37,10 @@ class Store:
                     ssm_names.append(value.lstrip(ssm_header))
             elif type(value) == dict:
                 ssm_names.extend(self.replace_params(value))
-        
+
         ssm_params = self.get_params(ssm_names)
         return self.replace_got_params(params, ssm_params)
-    
+
     def replace_got_params(self, params, ssm_params):
         ssm_header = self.get_ssm_header()
         for key, value in params.items():
@@ -47,6 +50,12 @@ class Store:
             elif type(value) == dict:
                 params[key] = self.replace_got_params(value, ssm_params)
         return params
+
+    def replace_os_env(self):
+        envs = self.replace_params(dict(os.environ))
+        for key, value in envs.items():
+            os.environ[key] = value
+        return self
 
 
 class TestStore(unittest.TestCase):
@@ -77,6 +86,20 @@ class TestStore(unittest.TestCase):
                          self.store.replace_params({'aaa': 'bbb', 'abc': '#SSM#/abc'}))
         self.assertEqual({'aaa': '/abc', 'abc': {'ccc': 'ddd', 'abc': '/abcd'}},
                          self.store.replace_params({'aaa': '#SSM#/abc', 'abc': {'ccc': 'ddd', 'abc': '#SSM#/abcd'}}))
+
+    def test環境変数を置き換える(self):
+        os.environ['PARAMSTORETEST1'] = '#SSM#/ok'
+        os.environ['PARAMSTORETEST2'] = '#aaa#aaa'
+        os.environ['PARAMSTORETEST3'] = '#SSM#/ok'
+        self.store.replace_os_env()
+        self.assertEqual('/ok', os.getenv('PARAMSTORETEST1'))
+        self.assertEqual('#aaa#aaa', os.getenv('PARAMSTORETEST2'))
+        self.assertEqual('/ok', os.getenv('PARAMSTORETEST3'))
+
+    def test既存の環境変数は起き変わらない(self):
+        equal = dict(os.environ)
+        self.store.replace_os_env()
+        self.assertEqual(equal, dict(os.environ))
 
 
 if __name__ == '__main__':
