@@ -1,6 +1,6 @@
 import unittest
 import os
-import boto3
+from ssm_client import SsmClient
 
 
 class Store:
@@ -8,7 +8,7 @@ class Store:
 
     def __init__(self, client=None, region_name='ap-northeast-1'):
         if not client:
-            client = boto3.client('ssm', region_name=region_name)
+            client = SsmClient(region_name=region_name)
         self.client = client
 
     def get_param(self, name):
@@ -18,14 +18,7 @@ class Store:
     def get_params(self, names):
         if not names:
             return names
-        response = self.client.get_parameters(
-            Names=names,
-            WithDecryption=True
-        )
-        values = {}
-        for param in response['Parameters']:
-            values[param['Name']] = param['Value']
-        return values
+        return self.client.get_parameters(names=names)
 
     def get_ssm_header(self):
         return self.SSM_HEADER
@@ -61,7 +54,7 @@ class Store:
 
 
 class TestStore(unittest.TestCase):
-    class TestSsmClient():
+    class FakeBotoClient():
         def get_parameters(self, Names=[], WithDecryption=False):
             # 与えられたキーと同じvalueを返すダミー
             params = []
@@ -71,7 +64,7 @@ class TestStore(unittest.TestCase):
             return {'Parameters': params, 'InvalidParameters': [], 'ResponseMetadata': {'RequestId': 'xxx', 'HTTPStatusCode': 200, 'HTTPHeaders': {'server': 'Server', 'date': 'Sun, 29 Aug 2021 02:51:53 GMT', 'content-type': 'application/x-amz-json-1.1', 'content-length': '452', 'connection': 'keep-alive', 'x-amzn-requestid': 'xxx'}, 'RetryAttempts': 0}}
 
     def setUp(self):
-        client = self.TestSsmClient()
+        client = SsmClient(boto_client=self.FakeBotoClient())
         self.store = Store(client=client)
 
     def testパラメータストアから値を単体取得(self):
@@ -102,6 +95,21 @@ class TestStore(unittest.TestCase):
         equal = dict(os.environ)
         self.store.replace_os_env()
         self.assertEqual(equal, dict(os.environ))
+
+    def testローカルで値を取得できるストア(self):
+        from local_client import LocalClient
+        client = LocalClient({'/abc': 'ok', '/def': 'aaa'})
+        store = Store(client=client)
+        self.assertEqual({'/abc': 'ok'}, store.get_params(['/abc']))
+        self.assertEqual({'/abc': 'ok', '/def': 'aaa'},
+                         store.get_params(['/abc', '/def']))
+
+    def testローカルで値を取得できるストアは値が登録されてないとエラーになる(self):
+        from local_client import LocalClient
+        client = LocalClient({})
+        store = Store(client=client)
+        with self.assertRaises(KeyError):
+            store.get_params(['/abc'])
 
 
 if __name__ == '__main__':

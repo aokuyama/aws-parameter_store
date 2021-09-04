@@ -2,7 +2,7 @@ import setuptools
  
 setuptools.setup(
     name="aws_parameter_store",
-    version="1.0.0",
+    version="1.0.1",
     author="aokuyama",
     author_email="mail@aokuyama.work",
     description="aws parameter store",
