@@ -1,9 +1,7 @@
-import boto3
-
-
 class SsmClient:
     def __init__(self, boto_client=None, region_name='ap-northeast-1'):
         if not boto_client:
+            import boto3
             boto_client = boto3.client('ssm', region_name=region_name)
         self.boto_client = boto_client
 
