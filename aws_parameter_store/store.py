@@ -24,6 +24,11 @@ class Store:
         return self.SSM_HEADER
 
     def replace_params(self, params):
+        ssm_names = self.collect_ssm_names(params)
+        ssm_params = self.get_params(ssm_names)
+        return self.replace_got_params(params, ssm_params)
+    
+    def collect_ssm_names(self, params):
         ssm_header = self.get_ssm_header()
         ssm_names = []
         for key, value in params.items():
@@ -31,10 +36,8 @@ class Store:
                 if value.startswith(ssm_header):
                     ssm_names.append(value.lstrip(ssm_header))
             elif type(value) == dict:
-                ssm_names.extend(self.replace_params(value))
-
-        ssm_params = self.get_params(ssm_names)
-        return self.replace_got_params(params, ssm_params)
+                ssm_names.extend(self.collect_ssm_names(value))
+        return ssm_names
 
     def replace_got_params(self, params, ssm_params):
         ssm_header = self.get_ssm_header()
@@ -55,7 +58,10 @@ class Store:
 
 class TestStore(unittest.TestCase):
     class FakeBotoClient():
+        def __init__(self):
+            self.count = 0
         def get_parameters(self, Names=[], WithDecryption=False):
+            self.count += 1
             # 与えられたキーと同じvalueを返すダミー
             params = []
             for name in Names:
@@ -64,7 +70,8 @@ class TestStore(unittest.TestCase):
             return {'Parameters': params, 'InvalidParameters': [], 'ResponseMetadata': {'RequestId': 'xxx', 'HTTPStatusCode': 200, 'HTTPHeaders': {'server': 'Server', 'date': 'Sun, 29 Aug 2021 02:51:53 GMT', 'content-type': 'application/x-amz-json-1.1', 'content-length': '452', 'connection': 'keep-alive', 'x-amzn-requestid': 'xxx'}, 'RetryAttempts': 0}}
 
     def setUp(self):
-        client = SsmClient(boto_client=self.FakeBotoClient())
+        self.fake = self.FakeBotoClient()
+        client = SsmClient(boto_client=self.fake)
         self.store = Store(client=client)
 
     def testパラメータストアから値を単体取得(self):
@@ -111,6 +118,9 @@ class TestStore(unittest.TestCase):
         with self.assertRaises(KeyError):
             store.get_params(['/abc'])
 
+    def test問い合わせはまとめて一回だけ行われる(self):
+        self.store.replace_params({'aaa': '#SSM#/abc', 'abc': {'ccc': {'ddd':'#SSM#/aaaa'}, 'abc': '#SSM#/abcd'}})
+        self.assertEqual(1, self.fake.count)
 
 if __name__ == '__main__':
     unittest.main()
